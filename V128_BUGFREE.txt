@@ -1,0 +1,1632 @@
+-- Animation Hub R15 - Version 126 ULTRA UX EDITION - BUG FIXED
+-- Base: 1.2.1 SUPER STABLE + UX upgrade:
+-- - Control bar fixed (ES Stop, Steal, CopyMyAnim)
+-- - Global search bar (ikut tab aktif)
+-- - Horizontal tabs (Animations / Stolen)
+-- - "Now Playing" bar + GOTO + speed control
+-- - Smooth scroll ke item (new stolen / now playing)
+-- - Scroll full mengikuti jumlah list (AutomaticCanvasSize.Y)
+-- - Semua logic utama 1.2.1 tetap dipertahankan
+-- - BUG FIXED: All critical bugs patched + minor UX safety
+
+----------------------------------------------------------
+-- GUI contents (static animation list)
+----------------------------------------------------------
+
+local AnimButtons = {
+    78086740525202, "yeah",
+    120452122477461, "Michael Myers Bounce (Leaning Back)",
+    92618727772186, "IShowSpeed Dance",
+    108313130500811, "Push-Up",
+    122770336163563, "California Gurls",
+    106389948045296, "Thanos Dance",
+    108865839239307, "AI cat dance",
+    110146282544198, "Orange Justice",
+    85588129788692, "Hit the Griddy",
+    72399762962601, "r",
+    79757971761739, "Shattered",
+    83265734904502, "Take the L",
+    129764254213842, "Gangnam Style",
+    114400428765989, "180° flip",
+    138433137191760, "I alone am the Honored One",
+    10714340543, "The Floss",
+    77984841414450, "Deltarune dance or smthn",
+    90333292347820, "The Worm",
+    88130117312312, "Fake Death",
+    111251252458517, "Uuuuuhhh",
+    84623954062978, "Peter nooooo",
+    93014787120483, "Garry's Dance",
+    99499783161907, "Aura farm",
+    80177289449617, "Snow angel",
+    70432904702322, "Get skinwalked",
+    123916423751437, "Rat Dance",
+    129537633250603, "It's Peanut Butter Jelly Time",
+    99158928535706, "Default Dance",
+    130059214239749, "Pissing dog",
+    91047682123297, "Macarena",
+    130019914905925, "Very serious Omni-Man",
+    133612047483255, "Roll",
+    79075971527754, "You know what that means…",
+    99637983789946, "It's a spooky month!!",
+    88971195093161, "Monster Mash",
+    122583653807009, "Soccer juggle",
+    107355541549056, "Engineer Dance",
+    126960077574956, "Chicken Dance",
+    78347793265211, "He's pulling his cock out!",
+    97148848007002, "Russian dance",
+    106022089542174, "Floating On Clouds",
+    84352128203419, "Vegetable Dance",
+    82293338535013, "DJ Khaled",
+}
+
+----------------------------------------------------------
+-- General Variables & Utilities
+----------------------------------------------------------
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local MarketplaceService = game:GetService("MarketplaceService")
+local TweenService = game:GetService("TweenService")
+
+local Player = Players.LocalPlayer
+local Mouse = Player:GetMouse()
+
+-- WIPE GUI OLD VERSION (PENTING BANGET)
+local PlayerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
+for _, gui in ipairs(PlayerGui:GetChildren()) do
+    if gui:IsA("ScreenGui") and gui:FindFirstChild("HubMainFrame") then
+        gui:Destroy()
+    end
+end
+
+local CursedMode = false
+local HeaderSize = 25
+local PlayingId = 0
+local Track = nil
+
+local Red   = Color3.fromRGB(255, 70, 70)      -- soft red
+local Green = Color3.fromRGB(0, 200, 120)      -- emerald green
+local Grey  = Color3.fromRGB(45, 45, 45)       -- dark grey
+local Blue  = Color3.fromRGB(0, 170, 255)      -- cyan blue
+
+-- Cache stolen animations agar tidak hilang
+local StolenList = {}
+
+-- Forward declarations
+local ScreenGui
+local MainFrame
+local AnimationsFrame
+local StolenAnimationsFrame
+local DragBar
+local CloseButton
+local MinimizeButton
+local RestoreButton
+local EStopButton
+local StealButton
+local CopyMyAnimButton
+local DeleteButton
+local Searchbar
+local TabBarFrame
+
+local NowPlayingFrame
+local NowPlayingLabel
+local NowPlayingSpeedBox
+local NowPlayingGotoButton
+local NowPlayingStopButton
+local DeleteMode = false
+local NowPlayingId = nil
+local NowPlayingName = nil
+local NowPlayingSourceFrame = nil
+local NowPlayingPlayButton = nil
+local NowPlayingRowSpeedBox = nil
+
+local Anim
+
+local StealStage = 0
+local stealHighlight = nil
+local stealConnection = nil  -- ������ FIX: Define di scope global
+local activeFrame
+
+----------------------------------------------------------
+-- Helper: Normalize Animation ID - FIXED
+-- Always returns: "rbxassetid://<digits>"
+----------------------------------------------------------
+local function NormalizeAnimId(id)
+    if not id then return nil end
+    local s = tostring(id)
+    -- ������ FIX: Handle berbagai format ID
+    if s:match("^rbxassetid://%d+$") then
+        return s
+    elseif s:match("^%d+$") then
+        return "rbxassetid://" .. s
+    else
+        local digits = s:match("%d+")
+        if not digits then return nil end
+        return "rbxassetid://" .. digits
+    end
+end
+
+----------------------------------------------------------
+-- Helper: Safe read JSON file
+----------------------------------------------------------
+local function SafeReadStolenList()
+    if not isfile or not readfile or not isfile("StolenList.json") then
+        return
+    end
+
+    local ok, content = pcall(readfile, "StolenList.json")
+    if not ok or not content or content == "" then
+        warn("[StolenList] readfile gagal atau kosong")
+        return
+    end
+
+    local ok2, decoded = pcall(function()
+        return HttpService:JSONDecode(content)
+    end)
+
+    if not ok2 or type(decoded) ~= "table" then
+        warn("[StolenList] JSONDecode gagal")
+        return
+    end
+
+    for _, data in pairs(decoded) do
+        if data.ID and data.Name then
+            local normalizedID = NormalizeAnimId(data.ID)
+            if normalizedID then
+                local found = false
+                for _, v in pairs(StolenList) do
+                    local vid = NormalizeAnimId(v.ID)
+                    if vid == normalizedID then
+                        found = true
+                        break
+                    end
+                end
+                if not found then
+                    table.insert(StolenList, {
+                        Name = data.Name,
+                        ID = normalizedID,
+                        animId = tonumber(normalizedID:match("%d+")) or data.animId
+                    })
+                end
+            end
+        end
+    end
+end
+
+----------------------------------------------------------
+-- Helper: Safe write JSON file
+----------------------------------------------------------
+local function SafeWriteStolen()
+    if not writefile then return end
+    local ok, err = pcall(function()
+        writefile("StolenList.json", HttpService:JSONEncode(StolenList))
+    end)
+    if not ok then
+        warn("[StolenList] writefile gagal:", err)
+    end
+end
+
+----------------------------------------------------------
+-- UPDATE CANVAS SIZE (ROW SYSTEM) - FIXED UNTUK ROW COMPACT 25px
+----------------------------------------------------------
+local function UpdateCanvasSize(Frame)
+    task.defer(function()
+        local totalHeight = 0
+        local rowCount = 0
+
+        for _, child in ipairs(Frame:GetChildren()) do
+            if child:IsA("Frame") and child.Visible then
+                totalHeight = totalHeight + 25  -- ������ FIX: Pakai fixed height 25 untuk row compact
+                rowCount = rowCount + 1
+            end
+        end
+
+        if rowCount > 0 then
+            Frame.CanvasSize = UDim2.new(0, 0, 0, totalHeight + 15)  -- ������ FIX: Tambah extra padding
+        else
+            Frame.CanvasSize = UDim2.new(0, 0, 0, 0)
+        end
+    end)
+end
+
+----------------------------------------------------------
+-- GUI Setup (Main window + layout)
+----------------------------------------------------------
+ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "MyAnimationHub"
+ScreenGui.Parent = Player:WaitForChild("PlayerGui")
+ScreenGui.ResetOnSpawn = false
+ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global  -- ������ FIX: Prevent z-index issues
+
+local WindowWidth = 250
+local ListWidth = 213
+local ControlRowHeight = 25
+local TabRowHeight = 25
+local NowPlayingHeight = 30
+local ListHeight = 300
+
+local WindowHeight = HeaderSize + (ControlRowHeight * 2) + TabRowHeight + NowPlayingHeight + ListHeight
+
+MainFrame = Instance.new("Frame")
+MainFrame.Name = "HubMainFrame"
+MainFrame.Size = UDim2.new(0, WindowWidth, 0, WindowHeight)
+MainFrame.Position = UDim2.new(0, 100, 0, 100)
+MainFrame.BackgroundTransparency = 1
+MainFrame.Parent = ScreenGui
+
+----------------------------------------------------------
+-- List Frames (Animations & Stolen)
+----------------------------------------------------------
+local ListStartY = HeaderSize + (ControlRowHeight * 2) + TabRowHeight
+
+local function CreateListFrame(name)
+    local Frame = Instance.new("ScrollingFrame")
+    Frame.Name = name
+    Frame.Visible = false
+    Frame.Size = UDim2.new(0, ListWidth, 0, ListHeight)
+    Frame.Position = UDim2.new(0, 0, 0, ListStartY)
+    Frame.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+    Frame.CanvasSize = UDim2.new(0, 0, 0, 0)
+    Frame.ScrollBarThickness = 4
+    Frame.ScrollingDirection = Enum.ScrollingDirection.Y
+    Frame.ScrollingEnabled = true
+    Frame.VerticalScrollBarInset = Enum.ScrollBarInset.Always
+    Frame.AutomaticCanvasSize = Enum.AutomaticSize.None
+    Frame.CanvasPosition = Vector2.new(0, 0)
+    Frame.MidImage = "rbxassetid://7445543667"
+    Frame.TopImage = "rbxassetid://7445543667"
+    Frame.BottomImage = "rbxassetid://7445543667"
+    Frame.Parent = MainFrame
+    Instance.new("UICorner", Frame)
+    
+    local padding = Instance.new("UIPadding")
+    padding.PaddingBottom = UDim.new(0, 2)
+    padding.PaddingTop = UDim.new(0, 2)  
+    padding.PaddingLeft = UDim.new(0, 5)
+    padding.PaddingRight = UDim.new(0, 5)
+    padding.Parent = Frame
+    
+    -- Clean up any existing layouts
+    task.wait()
+    for _, c in ipairs(Frame:GetChildren()) do
+        if c:IsA("UIGridLayout") or c:IsA("UITableLayout") then
+            c:Destroy()
+        end
+    end
+
+    -- Prevent unwanted layouts
+    Frame.ChildAdded:Connect(function(child)
+        if child:IsA("UIGridLayout") or child:IsA("UITableLayout") then
+            task.defer(function()
+                if child.Parent == Frame then
+                    child:Destroy()
+                end
+            end)
+        end
+    end)
+
+    -- Vertical layout
+    local layout = Instance.new("UIListLayout")
+    layout.FillDirection = Enum.FillDirection.Vertical
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 0)
+    layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    layout.Parent = Frame
+    
+    return Frame
+end
+
+AnimationsFrame = CreateListFrame("AnimationsTabFrame")
+AnimationsFrame.Visible = true
+StolenAnimationsFrame = CreateListFrame("StolenAnimationsTabFrame")
+
+activeFrame = AnimationsFrame
+
+----------------------------------------------------------
+-- DragBar + Window Controls
+----------------------------------------------------------
+DragBar = Instance.new("TextButton")
+DragBar.Text = "🔥🔥🔥 AnimationHub R15 V128 STABLE"
+DragBar.TextColor3 = Color3.fromRGB(255, 255, 255)
+DragBar.AutoButtonColor = false
+DragBar.Size = UDim2.new(0, WindowWidth, 0, HeaderSize)
+DragBar.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+Instance.new("UICorner", DragBar)
+DragBar.Position = UDim2.new(0, 0, 0, 0)
+DragBar.Parent = MainFrame
+DragBar.TextXAlignment = Enum.TextXAlignment.Left
+
+local pad = Instance.new("UIPadding")
+pad.PaddingLeft = UDim.new(0, 8)
+pad.Parent = DragBar
+
+CloseButton = Instance.new("TextButton")
+CloseButton.Text = "X"
+CloseButton.Size = UDim2.new(0, HeaderSize, 0, HeaderSize)
+CloseButton.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+Instance.new("UICorner", CloseButton)
+CloseButton.Position = UDim2.new(0, WindowWidth - HeaderSize, 0, 0)
+CloseButton.Parent = MainFrame
+
+MinimizeButton = Instance.new("TextButton")
+MinimizeButton.Text = "-"
+MinimizeButton.Size = CloseButton.Size
+MinimizeButton.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+Instance.new("UICorner", MinimizeButton)
+MinimizeButton.Position = UDim2.new(0, WindowWidth - HeaderSize * 2, 0, 0)
+MinimizeButton.Parent = MainFrame
+
+RestoreButton = Instance.new("TextButton")
+RestoreButton.Text = "🔥🔥🔥"
+RestoreButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+RestoreButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+RestoreButton.Size = UDim2.new(0, 50, 0, 50)
+RestoreButton.Position = UDim2.new(0, 10, 1, -(RestoreButton.Size.Y.Offset + 10))
+RestoreButton.AutoButtonColor = false
+Instance.new("UICorner", RestoreButton)
+RestoreButton.Visible = false
+RestoreButton.Parent = ScreenGui
+
+-- Minimize button functionality
+MinimizeButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    RestoreButton.Visible = true
+
+    -- ������ FIX: reset delete mode saat minimize
+    DeleteMode = false
+    if DeleteButton then
+        DeleteButton.BackgroundColor3 = Grey
+    end
+end)
+
+-- Restore button functionality
+RestoreButton.MouseButton1Click:Connect(function()
+    MainFrame.Visible = true
+    RestoreButton.Visible = false
+end)
+
+----------------------------------------------------------
+-- Generic UI helpers
+----------------------------------------------------------
+local function NiceButtons(Button)
+    Instance.new("UICorner").Parent = Button
+    local Grad = Instance.new("UIGradient")
+    Grad.Color = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.new(1,1,1)),
+        ColorSequenceKeypoint.new(1, Color3.new(0.7,0.7,0.7)),
+    }
+    Grad.Parent = Button
+end
+
+----------------------------------------------------------
+-- CreateInteractable (FINAL FIX - TEXTBOX TANPA LABEL)
+----------------------------------------------------------
+local function CreateInteractable(Size, Name, Text, Color, IsButton, Type, Parent)
+    local Interact
+
+    if Type == "TextBox" then
+        Interact = Instance.new("TextBox")
+        Interact.Text = ""
+        Interact.PlaceholderText = Text
+        Interact.ClearTextOnFocus = false
+        Interact.TextColor3 = Color3.new(1,1,1)
+        Interact.TextScaled = true
+        Interact.BackgroundColor3 = Color
+        Interact.BorderSizePixel = 0
+        Interact.Size = Size
+        Interact.Parent = Parent
+        Interact.AutomaticSize = Enum.AutomaticSize.None
+
+        Instance.new("UICorner", Interact)
+        return Interact
+    end
+
+    Interact = Instance.new("TextButton")
+    Interact.Name = Name
+    Interact.Text = ""
+    Interact.Size = Size
+    Interact.BackgroundColor3 = Color
+    Interact.BorderSizePixel = 0
+    Interact.Parent = Parent
+    Interact.AutomaticSize = Enum.AutomaticSize.None
+
+    local Label = Instance.new("TextLabel")
+    Label.Name = "Label"
+    Label.Text = Text
+    Label.BackgroundTransparency = 1
+    Label.Size = UDim2.new(1, 0, 1, 0)
+    Label.Position = UDim2.new(0, 0, 0, 0)
+    Label.TextColor3 = Color3.new(1,1,1)
+    Label.TextWrapped = true
+    Label.TextScaled = true
+    Label.AutomaticSize = Enum.AutomaticSize.None
+    Label.Parent = Interact
+
+    Instance.new("UICorner", Interact)
+    Instance.new("UICorner", Label)
+
+    return Interact
+end
+
+----------------------------------------------------------
+-- Confirm popup helper
+----------------------------------------------------------
+local function ShowConfirm(message, onYes)
+    local confirmGui = Instance.new("ScreenGui")
+    confirmGui.ResetOnSpawn = false
+    confirmGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    confirmGui.Parent = Player.PlayerGui
+
+    local bg = Instance.new("Frame")
+    bg.Size = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.new(0, 0, 0)
+    bg.BackgroundTransparency = 0.4
+    bg.Parent = confirmGui
+
+    local box = Instance.new("Frame")
+    box.Size = UDim2.new(0, 260, 0, 120)
+    box.Position = UDim2.new(0.5, -130, 0.5, -60)
+    box.BackgroundColor3 = Color3.new(0.2, 0.2, 0.2)
+    Instance.new("UICorner", box)
+    box.Parent = bg
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -20, 0.5, -10)
+    label.Position = UDim2.new(0, 10, 0, 10)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.new(1, 1, 1)
+    label.Text = message
+    label.TextWrapped = true
+    label.Font = Enum.Font.SourceSans
+    label.TextScaled = true
+    label.Parent = box
+
+    local yesBtn = Instance.new("TextButton")
+    yesBtn.Size = UDim2.new(0.45, -10, 0.3, 0)
+    yesBtn.Position = UDim2.new(0.05, 0, 0.6, 0)
+    yesBtn.Text = "Ya"
+    yesBtn.BackgroundColor3 = Color3.fromRGB(0, 170, 0)
+    Instance.new("UICorner", yesBtn)
+    yesBtn.Parent = box
+
+    local noBtn = Instance.new("TextButton")
+    noBtn.Size = UDim2.new(0.45, -10, 0.3, 0)
+    noBtn.Position = UDim2.new(0.5, 0, 0.6, 0)
+    noBtn.Text = "Batal"
+    noBtn.BackgroundColor3 = Color3.fromRGB(170, 0, 0)
+    Instance.new("UICorner", noBtn)
+    noBtn.Parent = box
+
+    local function cleanup()
+        if confirmGui and confirmGui.Parent then
+            confirmGui:Destroy()
+        end
+    end
+
+    yesBtn.MouseButton1Click:Connect(function()
+        cleanup()
+        if onYes then
+            onYes()
+        end
+    end)
+
+    noBtn.MouseButton1Click:Connect(function()
+        cleanup()
+    end)
+end
+
+----------------------------------------------------------
+-- Animation instance holder
+----------------------------------------------------------
+Anim = Instance.new("Animation")
+Anim.Name = "HubAnimation"
+
+----------------------------------------------------------
+-- Mass untoggle helper
+----------------------------------------------------------
+local function MassUnToggle(activeButton)
+    for _, frame in pairs({AnimationsFrame, StolenAnimationsFrame}) do
+        for _, row in pairs(frame:GetChildren()) do
+            if row:IsA("Frame") then
+                for _, btn in pairs(row:GetChildren()) do
+                    if btn:IsA("TextButton") and btn ~= activeButton then
+                        if btn:GetAttribute("Toggled") then
+                            btn:SetAttribute("Toggled", false)
+                            btn.BackgroundColor3 = Red
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+----------------------------------------------------------
+-- Play Animation - FIXED MEMORY LEAK
+----------------------------------------------------------
+local function PlayAnimation(ID, Speed)
+    local Character = Player.Character
+    if not Character then 
+        warn("[PlayAnimation] Character not found")
+        return 
+    end
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if not Humanoid then 
+        warn("[PlayAnimation] Humanoid not found")
+        return 
+    end
+
+    local normalized = NormalizeAnimId(ID)
+    if not normalized then 
+        warn("[PlayAnimation] Invalid animation ID:", ID)
+        return 
+    end
+
+    Anim.AnimationId = normalized
+
+    -- ������ FIX: Properly stop and cleanup old track
+    if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") then
+        local success, err = pcall(function() 
+            if Track.IsPlaying then
+                Track:Stop() 
+            end
+        end)
+        if not success then
+            warn("[PlayAnimation] Error stopping old track:", err)
+        end
+        Track = nil  -- ������ FIX: Clear reference
+    end
+
+    local success, newTrack = pcall(function()
+        return Humanoid:LoadAnimation(Anim)
+    end)
+    
+    if not success or not newTrack then
+        warn("[PlayAnimation] Failed to load animation")
+        return
+    end
+    
+    Track = newTrack
+    Track.Looped = true
+
+    local speedValue = tonumber(Speed)
+    if speedValue == nil or speedValue <= 0 then
+        speedValue = 1
+    end
+
+    local playSuccess, playErr = pcall(function()
+        Track:Play()
+        Track:AdjustSpeed(speedValue)
+        Track.Priority = Enum.AnimationPriority.Action
+    end)
+    
+    if not playSuccess then
+        warn("[PlayAnimation] Error playing animation:", playErr)
+        Track = nil
+        return
+    end
+
+    PlayingId = normalized
+    print("[Animation playing]", normalized, "at speed", speedValue)
+end
+
+local function UpdateNowPlayingUI()
+    if NowPlayingFrame then
+        NowPlayingFrame.Visible = true
+
+        if NowPlayingName and NowPlayingName ~= "" then
+            -- ������ FIX: Truncate long names
+            local displayName = NowPlayingName
+            if #displayName > 20 then
+                displayName = displayName:sub(1, 17) .. "..."
+            end
+            NowPlayingLabel.Text = "Now: " .. displayName
+        else
+            NowPlayingLabel.Text = "Now Playing:"
+        end
+    end
+end
+
+----------------------------------------------------------
+-- Speed TextBox handler - FIXED SYNC ISSUE
+----------------------------------------------------------
+local function TextboxSpeedAdjust(Box, rawID)
+    local normalizedID = NormalizeAnimId(rawID)
+    if not normalizedID then return end
+
+    Box.FocusLost:Connect(function()
+        local speedValue = tonumber(Box.Text)
+
+        if speedValue == nil or speedValue <= 0 then
+            speedValue = 1
+            Box.Text = "1"
+        end
+
+        -- Update animation speed if currently playing
+        if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") and Track.IsPlaying then
+            local currentAnimId = Track.Animation and Track.Animation.AnimationId
+            local currentNorm = NormalizeAnimId(currentAnimId)
+
+            if currentNorm == normalizedID then
+                local success, err = pcall(function()
+                    Track:AdjustSpeed(speedValue)
+                end)
+                if success then
+                    print("[Speed adjusted]", speedValue, "for", normalizedID)
+                else
+                    warn("[Speed adjust failed]:", err)
+                end
+            end
+        end
+
+        -- Sync with Now Playing box
+        if NowPlayingId == normalizedID then
+            if NowPlayingSpeedBox then
+                NowPlayingSpeedBox.Text = tostring(speedValue)
+            end
+        end
+    end)
+end
+
+----------------------------------------------------------
+-- Delete Stolen Animation by AnimId - FIXED
+----------------------------------------------------------
+local AfterStolenListChanged -- helper untuk refresh UI setelah list stolen berubah
+
+local function DeleteStolenById(animIdNormalized)
+    local currentScroll = StolenAnimationsFrame.CanvasPosition
+    
+    animIdNormalized = NormalizeAnimId(animIdNormalized)
+    if not animIdNormalized then return end
+
+    -- Stop track if this one is playing
+    if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") and PlayingId == animIdNormalized then
+        pcall(function() 
+            if Track.IsPlaying then
+                Track:Stop() 
+            end
+        end)
+        Track = nil
+        PlayingId = 0
+        if NowPlayingId == animIdNormalized then
+            NowPlayingId = nil
+            NowPlayingName = nil
+            NowPlayingSourceFrame = nil
+            UpdateNowPlayingUI()
+        end
+    end
+
+    -- Remove from StolenList
+    for i = #StolenList, 1, -1 do
+        local entryId = NormalizeAnimId(StolenList[i].ID)
+        if entryId == animIdNormalized then
+            table.remove(StolenList, i)
+            break
+        end
+    end
+    SafeWriteStolen()
+
+    -- Remove UI elements
+    for _, row in pairs(StolenAnimationsFrame:GetChildren()) do
+        if row:IsA("Frame") then
+            local shouldDelete = false
+            for _, child in pairs(row:GetChildren()) do
+                if (child:IsA("TextButton") or child:IsA("TextBox")) and child:GetAttribute("AnimId") then
+                    local cid = NormalizeAnimId(child:GetAttribute("AnimId"))
+                    if cid == animIdNormalized then
+                        shouldDelete = true
+                        break
+                    end
+                end
+            end
+            if shouldDelete then
+                row:Destroy()
+                break
+            end
+        end
+    end
+
+    task.wait()
+    UpdateCanvasSize(StolenAnimationsFrame)
+    StolenAnimationsFrame.CanvasPosition = currentScroll
+    print("[Delete] Removed stolen animation", animIdNormalized)
+
+    -- ������ FIX: pastikan search & canvas sync setelah delete
+    if AfterStolenListChanged then
+        AfterStolenListChanged()
+    end
+end
+
+----------------------------------------------------------
+-- Button Creation (Play button, and for stolen: also Delete button)
+----------------------------------------------------------
+local function CreateButton(Size, Color, Text, Name, ID, Frame, ConnectingBox, Toggled)
+    local Button = CreateInteractable(Size, Name, Text, Color, true, "TextButton", Frame)
+    Button.LayoutOrder = 2
+    Button:SetAttribute("Toggled", Toggled and true or false)
+
+    local normalized = NormalizeAnimId(ID)
+    Button:SetAttribute("AnimId", normalized)
+    Button:SetAttribute("AnimName", Text)
+    
+    if Frame then
+        local target = Frame
+        if not target:IsA("ScrollingFrame") and target.Parent and target.Parent:IsA("ScrollingFrame") then
+            target = target.Parent
+        end
+        if target:IsA("ScrollingFrame") then
+            UpdateCanvasSize(target)
+        end
+    end
+
+    Button.MouseButton1Click:Connect(function()
+        if DeleteMode and activeFrame == StolenAnimationsFrame then 
+            ShowConfirm("Hapus animasi:\n"..tostring(Button:GetAttribute("AnimName")).." ?", function() 
+                DeleteStolenById(Button:GetAttribute("AnimId")) 
+            end) 
+            return 
+        end
+        if CursedMode then return end
+
+        if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") then
+            pcall(function()
+                if Track.IsPlaying then
+                    Track:Stop()
+                end
+            end)
+        end
+
+        if PlayingId == normalized and Button:GetAttribute("Toggled") then
+            Button:SetAttribute("Toggled", false)
+            Button.BackgroundColor3 = Red
+            PlayingId = 0
+
+            if NowPlayingId == normalized then
+                NowPlayingId = nil
+                NowPlayingName = nil
+                NowPlayingSourceFrame = nil
+                UpdateNowPlayingUI()
+            end
+
+            return
+        end
+
+        MassUnToggle(Button)
+
+        Button:SetAttribute("Toggled", true)
+        Button.BackgroundColor3 = Green
+        PlayingId = normalized
+        
+        NowPlayingRowSpeedBox = ConnectingBox
+        NowPlayingPlayButton = Button
+
+        local speed = ConnectingBox and ConnectingBox.Text or "1"
+        if speed == "" then
+            speed = "1"
+        end
+        PlayAnimation(normalized, speed)
+
+        NowPlayingId = normalized
+        NowPlayingName = Text
+        NowPlayingSourceFrame = Frame
+        if NowPlayingSpeedBox then
+            NowPlayingSpeedBox.Text = tostring(speed)
+        end
+        UpdateNowPlayingUI()
+    end)
+
+    return Button
+end
+
+----------------------------------------------------------
+-- TextBox creation
+----------------------------------------------------------
+local function CreateTextbox(Size, Color, Name, ID, Frame)
+    local Box = CreateInteractable(Size, Name, "Speed (default 1)", Color, false, "TextBox", Frame)
+    Box.LayoutOrder = 1
+    local normalized = NormalizeAnimId(ID)
+    Box:SetAttribute("AnimId", normalized)
+    
+    if Frame then
+        local target = Frame
+        if not target:IsA("ScrollingFrame") and target.Parent and target.Parent:IsA("ScrollingFrame") then
+            target = target.Parent
+        end
+        if target:IsA("ScrollingFrame") then
+            UpdateCanvasSize(target)
+        end
+    end
+    TextboxSpeedAdjust(Box, normalized)
+    return Box
+end
+
+----------------------------------------------------------
+-- Create Stolen Animation Row (TextBox + Button) - FIXED
+----------------------------------------------------------
+----------------------------------------------------------
+-- Create Stolen Animation Row (TextBox + Button) - FIXED SUPER COMPACT VERTICAL
+----------------------------------------------------------
+local function CreateStolenRow(name, animIdNum, normalizedID)
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, -10, 0, 25) -- ������ FIX: Height 25
+    Row.BackgroundTransparency = 1
+    Row.BorderSizePixel = 0
+    
+    local H = Instance.new("UIListLayout")
+    H.FillDirection = Enum.FillDirection.Horizontal
+    H.Padding = UDim.new(0, 6)
+    H.VerticalAlignment = Enum.VerticalAlignment.Center
+    H.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    H.SortOrder = Enum.SortOrder.LayoutOrder
+    H.Parent = Row
+
+    local speedBox = CreateTextbox(UDim2.new(0, 50, 0, 22), Grey, name, normalizedID, nil) -- Height 22
+    speedBox.LayoutOrder = 1
+    speedBox.Size = UDim2.new(0, 50, 0, 22)
+    
+    local playBtn = CreateButton(UDim2.new(1, -62, 0, 22), Red, name, name, normalizedID, nil, speedBox, false) -- Height 22
+    playBtn.LayoutOrder = 2
+    playBtn.Size = UDim2.new(1, -62, 0, 22)
+
+    speedBox.Parent = Row
+    playBtn.Parent = Row
+
+    Row.Parent = StolenAnimationsFrame
+    return Row
+end
+
+----------------------------------------------------------
+-- Check if an animation is already in stolen list UI DAN LIST
+----------------------------------------------------------
+local function CheckForOwnedAnimations(ID, PlayIt)
+    local normalized = NormalizeAnimId(ID)
+    if not normalized then return false end
+
+    for _, data in pairs(StolenList) do
+        local listId = NormalizeAnimId(data.ID)
+        if listId == normalized then
+            if PlayIt then
+                PlayAnimation(normalized, "1")
+            end
+            return true
+        end
+    end
+
+    for _, child in pairs(StolenAnimationsFrame:GetChildren()) do
+        if (child:IsA("TextButton") or child:IsA("TextBox")) and child:GetAttribute("AnimId") then
+            local aid = NormalizeAnimId(child:GetAttribute("AnimId"))
+            if aid == normalized then
+                if PlayIt then
+                    PlayAnimation(normalized, "1")
+                end
+                return true
+            end
+        end
+    end
+
+    if PlayIt then
+        PlayAnimation(normalized, "1")
+    end
+
+    return false
+end
+
+----------------------------------------------------------
+-- Steal mode helpers - FIXED MEMORY LEAK
+----------------------------------------------------------
+local function EnterStealMode()
+    if StealStage ~= 0 then
+        ExitStealMode()
+        return
+    end
+
+    StealStage = 1
+    if StealButton then
+        StealButton.BackgroundColor3 = Blue
+    end
+
+    if stealHighlight and stealHighlight.Parent then
+        stealHighlight:Destroy()
+    end
+
+    stealHighlight = Instance.new("Highlight")
+    stealHighlight.FillColor = Blue
+    stealHighlight.OutlineColor = Blue
+    stealHighlight.Parent = workspace
+
+    local startTime = tick()
+    
+    -- ������ FIX: Proper connection management
+    if stealConnection then
+        stealConnection:Disconnect()
+        stealConnection = nil
+    end
+    
+    stealConnection = game:GetService("RunService").Heartbeat:Connect(function()
+        if StealStage ~= 1 or tick() - startTime >= 15 then
+            ExitStealMode()
+            return
+        end
+        
+        local target = Mouse.Target
+        local model = target and target:FindFirstAncestorWhichIsA("Model") or nil
+        local humanoid = model and model:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            stealHighlight.Adornee = model
+        else
+            stealHighlight.Adornee = nil
+        end
+    end)
+end
+
+local function ExitStealMode()
+    StealStage = 0
+    
+    -- ������ FIX: Proper connection cleanup
+    if stealConnection then
+        stealConnection:Disconnect()
+        stealConnection = nil
+    end
+    
+    if StealButton then
+        StealButton.BackgroundColor3 = Red
+    end
+    
+    if stealHighlight and stealHighlight.Parent then
+        stealHighlight:Destroy()
+        stealHighlight = nil
+    end
+end
+
+----------------------------------------------------------
+-- CONTROL BAR (ES STOP | STEAL | COPY) + SEARCH + TABS + NOW PLAYING
+----------------------------------------------------------
+-- Buttons row
+local ButtonsRow = Instance.new("Frame")
+ButtonsRow.Name = "ButtonsRow"
+ButtonsRow.Size = UDim2.new(0, ListWidth, 0, ControlRowHeight)
+ButtonsRow.Position = UDim2.new(0, 0, 0, HeaderSize)
+ButtonsRow.BackgroundTransparency = 1
+ButtonsRow.Parent = MainFrame
+
+EStopButton = CreateInteractable(UDim2.new(0, math.floor(ListWidth/4), 0, ControlRowHeight), "EStop", "Emergency Stop", Grey, true, "TextButton", ButtonsRow)
+EStopButton.Position = UDim2.new(0, 0, 0, 0)
+
+StealButton = CreateInteractable(UDim2.new(0, math.floor(ListWidth/4), 0, ControlRowHeight), "Steal", "Steal animation", Red, true, "TextButton", ButtonsRow)
+StealButton.Position = UDim2.new(0, math.floor(ListWidth/4), 0, 0)
+
+CopyMyAnimButton = CreateInteractable(UDim2.new(0, math.floor(ListWidth/4), 0, ControlRowHeight), "CopyMyAnim", "Copy My Animation", Blue, true, "TextButton", ButtonsRow)
+CopyMyAnimButton.Position = UDim2.new(0, 2*math.floor(ListWidth/4), 0, 0)
+
+DeleteButton = CreateInteractable(UDim2.new(0, math.floor(ListWidth/4), 0, ControlRowHeight), "Delete", "Delete Mode (Stolen Only)", Grey, true, "TextButton", ButtonsRow)
+DeleteButton.Position = UDim2.new(0, 3*math.floor(ListWidth/4), 0, 0)
+
+----------------------------------------------------------
+-- Search row (global search) + CLEAR BUTTON
+----------------------------------------------------------
+local SearchRow = Instance.new("Frame")
+SearchRow.Name = "SearchRow"
+SearchRow.Size = UDim2.new(0, ListWidth, 0, ControlRowHeight)
+SearchRow.Position = UDim2.new(0, 0, 0, HeaderSize + ControlRowHeight)
+SearchRow.BackgroundTransparency = 1
+SearchRow.Parent = MainFrame
+
+-- Search bar dikasih space yang pas buat clear button
+Searchbar = CreateInteractable(UDim2.new(1, -23, 0, ControlRowHeight), "Searchbar", "Search for animations", Grey, false, "TextBox", SearchRow)
+Searchbar.PlaceholderColor3 = Color3.fromRGB(180, 180, 180)
+Searchbar.ClearTextOnFocus = false
+Searchbar.Position = UDim2.new(0, 0, 0, 0)
+
+-- Clear button yang lebih mepet
+local ClearSearchButton = Instance.new("TextButton")
+ClearSearchButton.Name = "ClearSearch"
+ClearSearchButton.Size = UDim2.new(0, 23, 0, ControlRowHeight)
+ClearSearchButton.Position = UDim2.new(1, -23, 0, 0)
+ClearSearchButton.BackgroundColor3 = Color3.fromRGB(150, 70, 70)
+ClearSearchButton.BorderSizePixel = 0
+ClearSearchButton.Text = "X"
+ClearSearchButton.TextColor3 = Color3.new(1, 1, 1)
+ClearSearchButton.TextScaled = true
+ClearSearchButton.Visible = true
+ClearSearchButton.Parent = SearchRow
+
+-- Biar corner-nya match dan seamless
+local searchCorner = Instance.new("UICorner", Searchbar)
+searchCorner.CornerRadius = UDim.new(0, 6)
+
+local clearCorner = Instance.new("UICorner", ClearSearchButton)
+clearCorner.CornerRadius = UDim.new(0, 6)
+
+-- ������ FIX: Efek klik dengan timing yang bener
+ClearSearchButton.MouseButton1Down:Connect(function()
+    ClearSearchButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)  -- Merah paling terang pas ditekan
+end)
+
+ClearSearchButton.MouseButton1Click:Connect(function()
+    -- Clear text tanpa buka keyboard
+    if Searchbar.Text ~= "" then
+        Searchbar.Text = ""
+    end
+    
+    -- Biar warna merah terangnya keliatan dulu
+    ClearSearchButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)  -- Merah terang kaya tombol play
+    
+    -- Tunggu 0.5 detik biar efeknya keliatan, baru balik ke normal
+    task.delay(0.3, function()
+        if ClearSearchButton then
+            ClearSearchButton.BackgroundColor3 = Color3.fromRGB(150, 70, 70)  -- Balik ke merah gelap
+        end
+    end)
+end)
+
+ClearSearchButton.MouseLeave:Connect(function()
+    -- Jangan reset warna kalo lagi dalam proses klik
+    task.wait(0.6)  -- Tunggu lebih lama dari efek klik
+    if ClearSearchButton then
+        ClearSearchButton.BackgroundColor3 = Color3.fromRGB(150, 70, 70)
+    end
+end)
+
+----------------------------------------------------------
+-- Tabs row
+----------------------------------------------------------
+TabBarFrame = Instance.new("Frame")
+TabBarFrame.Name = "TabBarFrame"
+TabBarFrame.Size = UDim2.new(0, ListWidth, 0, TabRowHeight)
+TabBarFrame.Position = UDim2.new(0, 0, 0, HeaderSize + ControlRowHeight * 2)
+TabBarFrame.BackgroundTransparency = 1
+TabBarFrame.Parent = MainFrame
+
+local function CreateTabButton(text, frameToShow)
+    local btn = Instance.new("TextButton")
+    btn.Text = text
+    btn.Size = UDim2.new(0.5, -2, 1, 0)
+    btn.BackgroundColor3 = Grey
+    btn.TextColor3 = Color3.new(1,1,1)
+    btn.TextScaled = true
+    btn.Name = text .. "TabButton"
+    btn.Parent = TabBarFrame
+    Instance.new("UICorner", btn)
+    return btn
+end
+
+local AnimTabButton = CreateTabButton("Animations", AnimationsFrame)
+AnimTabButton.Position = UDim2.new(0, 0, 0, 0)
+
+local StolenTabButton = CreateTabButton("Stolen Animations", StolenAnimationsFrame)
+StolenTabButton.Position = UDim2.new(0.5, 2, 0, 0)
+
+AnimTabButton.BackgroundColor3 = Green
+
+local oldSearch = ""
+local savedScrollPosition = Vector2.new(0, 0)
+
+local function ApplySearchFilter()
+    if not Searchbar or not activeFrame then
+        return
+    end
+
+    local search = string.lower(Searchbar.Text or "")
+
+    -- ������ FIX: Safe scroll position handling
+    if activeFrame and activeFrame:IsA("ScrollingFrame") then
+        if search ~= "" and oldSearch == "" then
+            savedScrollPosition = activeFrame.CanvasPosition
+            activeFrame.CanvasPosition = Vector2.new(0, 0)
+        elseif search == "" and oldSearch ~= "" then
+            activeFrame.CanvasPosition = savedScrollPosition
+        end
+    end
+
+    -- Loop semua ROW dan apply filter
+    for _, row in pairs(activeFrame:GetChildren()) do
+        if row:IsA("Frame") then
+            local refName = ""
+            local hasMatch = false
+
+            for _, child in pairs(row:GetChildren()) do
+                if child:IsA("TextButton") and child:GetAttribute("AnimName") then
+                    refName = string.lower(child:GetAttribute("AnimName"))
+                    break
+                end
+            end
+
+            if search == "" or refName:find(search, 1, true) ~= nil then
+                hasMatch = true
+            end
+
+            row.Visible = hasMatch
+        end
+    end
+    
+    UpdateCanvasSize(activeFrame)
+    oldSearch = search
+end
+
+Searchbar:GetPropertyChangedSignal("Text"):Connect(function()
+    ApplySearchFilter()
+end)
+
+-- ������ FIX: helper tiap kali list stolen berubah (delete / restore / copy)
+AfterStolenListChanged = function()
+    UpdateCanvasSize(StolenAnimationsFrame)
+    if activeFrame == StolenAnimationsFrame then
+        ApplySearchFilter()
+    end
+end
+
+local TabScrollPositions = {
+    Animations = Vector2.new(0, 0),
+    Stolen = Vector2.new(0, 0)
+}
+
+local function SwitchTab(targetFrame)
+    DeleteMode = false
+    DeleteButton.BackgroundColor3 = Grey
+    
+    -- ������ FIX: Notify user about delete mode change
+    if activeFrame == StolenAnimationsFrame then
+        print("Delete Mode: OFF - Pindah ke tab lain")
+    end
+    
+    -- Save current scroll position
+    if activeFrame and activeFrame:IsA("ScrollingFrame") then
+        if activeFrame == AnimationsFrame then
+            TabScrollPositions.Animations = activeFrame.CanvasPosition
+        elseif activeFrame == StolenAnimationsFrame then
+            TabScrollPositions.Stolen = activeFrame.CanvasPosition
+        end
+    end
+    
+    activeFrame = targetFrame
+
+    AnimationsFrame.Visible = (targetFrame == AnimationsFrame)
+    StolenAnimationsFrame.Visible = (targetFrame == StolenAnimationsFrame)
+
+    AnimTabButton.BackgroundColor3 = (targetFrame == AnimationsFrame) and Green or Grey
+    StolenTabButton.BackgroundColor3 = (targetFrame == StolenAnimationsFrame) and Green or Grey
+
+    -- Restore scroll position
+    if targetFrame:IsA("ScrollingFrame") then
+        if targetFrame == AnimationsFrame then
+            targetFrame.CanvasPosition = TabScrollPositions.Animations
+        else
+            targetFrame.CanvasPosition = TabScrollPositions.Stolen
+        end
+    end
+
+    ApplySearchFilter()
+end
+
+AnimTabButton.MouseButton1Click:Connect(function()
+    SwitchTab(AnimationsFrame)
+end)
+
+StolenTabButton.MouseButton1Click:Connect(function()
+    SwitchTab(StolenAnimationsFrame)
+end)
+
+----------------------------------------------------------
+-- Now Playing row
+----------------------------------------------------------
+NowPlayingFrame = Instance.new("Frame")
+NowPlayingFrame.Name = "NowPlayingFrame"
+NowPlayingFrame.Size = UDim2.new(0, ListWidth, 0, NowPlayingHeight)
+NowPlayingFrame.Position = UDim2.new(0, 0, 1, -NowPlayingHeight)
+NowPlayingFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+Instance.new("UICorner", NowPlayingFrame)
+NowPlayingFrame.Parent = MainFrame
+NowPlayingFrame.Visible = true
+
+NowPlayingLabel = Instance.new("TextLabel")
+NowPlayingLabel.BackgroundTransparency = 1
+NowPlayingLabel.Size = UDim2.new(0.55, 0, 1, 0)
+NowPlayingLabel.Position = UDim2.new(0, 5, 0, 0)
+NowPlayingLabel.TextColor3 = Color3.new(1,1,1)
+NowPlayingLabel.TextXAlignment = Enum.TextXAlignment.Left
+NowPlayingLabel.TextScaled = true
+NowPlayingLabel.Font = Enum.Font.SourceSans
+NowPlayingLabel.Text = "Now Playing:"
+NowPlayingLabel.Parent = NowPlayingFrame
+
+NowPlayingSpeedBox = Instance.new("TextBox")
+NowPlayingSpeedBox.Size = UDim2.new(0, 40, 0.8, 0)
+NowPlayingSpeedBox.Position = UDim2.new(0.55, 0, 0.1, 0)
+NowPlayingSpeedBox.BackgroundColor3 = Grey
+NowPlayingSpeedBox.Text = "1"
+NowPlayingSpeedBox.TextScaled = true
+NowPlayingSpeedBox.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", NowPlayingSpeedBox)
+NowPlayingSpeedBox.Parent = NowPlayingFrame
+
+NowPlayingStopButton = Instance.new("TextButton")
+NowPlayingStopButton.Size = UDim2.new(0, 50, 0.8, 0)
+NowPlayingStopButton.Position = UDim2.new(0.55 + 40/ListWidth, 5, 0.1, 0)
+NowPlayingStopButton.Text = "Stop"
+NowPlayingStopButton.BackgroundColor3 = Red
+NowPlayingStopButton.TextScaled = true
+NowPlayingStopButton.TextColor3 = Color3.new(1,1,1)
+Instance.new("UICorner", NowPlayingStopButton)
+NowPlayingStopButton.Parent = NowPlayingFrame
+
+----------------------------------------------------------
+-- Drag bar functionality (move whole MainFrame)
+----------------------------------------------------------
+DragBar.MouseButton1Down:Connect(function()
+    local mouse = Player:GetMouse()
+    local offsetX = mouse.X - MainFrame.AbsolutePosition.X
+    local offsetY = mouse.Y - MainFrame.AbsolutePosition.Y
+
+    while UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) do
+        task.wait(0.01)
+        local newX = mouse.X - offsetX
+        local newY = mouse.Y - offsetY
+        MainFrame.Position = UDim2.new(0, newX, 0, newY)
+    end
+end)
+
+----------------------------------------------------------
+-- Close button functionality - FIXED MEMORY CLEANUP
+----------------------------------------------------------
+CloseButton.MouseButton1Click:Connect(function()
+    -- ������ FIX: reset delete mode saat close
+    DeleteMode = false
+    if DeleteButton then
+        DeleteButton.BackgroundColor3 = Grey
+    end
+
+    ExitStealMode()  -- Cleanup steal mode
+    if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") then
+        pcall(function() 
+            if Track.IsPlaying then
+                Track:Stop() 
+            end
+        end)
+        Track = nil
+    end
+    if ScreenGui then
+        ScreenGui:Destroy()
+    end
+end)
+
+----------------------------------------------------------
+-- Emergency stop helper - FIXED
+----------------------------------------------------------
+local function StopAllAnimations()
+    local Character = Player.Character
+    if Character then
+        local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+        if Humanoid then
+            for _, LocalTrack in pairs(Humanoid:GetPlayingAnimationTracks()) do
+                if LocalTrack and typeof(LocalTrack) == "Instance" and LocalTrack:IsA("AnimationTrack") then
+                    pcall(function() 
+                        if LocalTrack.IsPlaying then
+                            LocalTrack:Stop() 
+                        end
+                    end)
+                end
+            end
+        end
+    end
+    
+    if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") then
+        pcall(function() 
+            if Track.IsPlaying then
+                Track:Stop() 
+            end
+        end)
+        Track = nil  -- ������ FIX: Clear reference
+    end
+    
+    MassUnToggle(nil)
+    PlayingId = 0
+
+    NowPlayingId = nil
+    NowPlayingName = nil
+    NowPlayingSourceFrame = nil
+
+    if NowPlayingLabel then
+        NowPlayingLabel.Text = "Now Playing:"
+    end
+
+    UpdateNowPlayingUI()
+end
+
+----------------------------------------------------------
+-- Emergency stop button
+----------------------------------------------------------
+EStopButton.MouseButton1Click:Connect(function()
+    StopAllAnimations()
+end)
+
+NowPlayingStopButton.MouseButton1Click:Connect(function()
+    StopAllAnimations()
+end)
+
+----------------------------------------------------------
+-- 10-D : SPEED NOW PLAYING → SINKRON KE ROW + ANIM - FIXED
+----------------------------------------------------------
+NowPlayingSpeedBox.FocusLost:Connect(function()
+    if not NowPlayingId then return end
+
+    local newSpeed = tonumber(NowPlayingSpeedBox.Text)
+    if not newSpeed or newSpeed <= 0 then
+        newSpeed = 1
+        NowPlayingSpeedBox.Text = "1"
+    end
+
+    -- Update animation speed
+    if Track and typeof(Track) == "Instance" and Track:IsA("AnimationTrack") and Track.IsPlaying then
+        local success, err = pcall(function()
+            Track:AdjustSpeed(newSpeed)
+        end)
+        if not success then
+            warn("[NowPlaying Speed adjust failed]:", err)
+        end
+    end
+
+    -- Update row speed box dan trigger logic-nya
+    if NowPlayingPlayButton and NowPlayingPlayButton.Parent then
+        for _, c in ipairs(NowPlayingPlayButton.Parent:GetChildren()) do
+            if c:IsA("TextBox") and c:GetAttribute("AnimId") == NowPlayingId then
+                c.Text = tostring(newSpeed)
+            end
+        end
+    end
+end)
+
+----------------------------------------------------------
+-- Steal button
+----------------------------------------------------------
+StealButton.MouseButton1Click:Connect(function()
+    if StealStage == 0 then
+        EnterStealMode()
+    else
+        ExitStealMode()
+    end
+end)
+
+----------------------------------------------------------
+-- Copy My Animation button - FIXED DUPLICATION BUG
+----------------------------------------------------------
+CopyMyAnimButton.MouseButton1Click:Connect(function()
+    local Character = Player.Character
+    if not Character then 
+        warn("[CopyMyAnim] Character not found")
+        return 
+    end
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if not Humanoid then 
+        warn("[CopyMyAnim] Humanoid not found")
+        return 
+    end
+
+    local copiedCount = 0
+    
+    for _, localTrack in pairs(Humanoid:GetPlayingAnimationTracks()) do
+        local animId = localTrack.Animation and localTrack.Animation.AnimationId
+        local normalized = NormalizeAnimId(animId)
+
+        if normalized and not CheckForOwnedAnimations(normalized, false) then
+            local numeric = tonumber(normalized:match("%d+"))
+            local success, info = pcall(function()
+                return MarketplaceService:GetProductInfo(numeric)
+            end)
+
+            local name = "My Animation"
+            if success and info and info.Name then
+                name = info.Name
+            end
+            
+            -- Filter out idle/walk/run animations
+            local lowerName = string.lower(name)
+            if not (lowerName:find("idle") or lowerName:find("walk") or lowerName:find("run")) then
+                -- ������ FIX: Remove duplication - only create sekali
+                CreateStolenRow(name, numeric, normalized)
+                table.insert(StolenList, {
+                    Name = name,
+                    ID = normalized,
+                    animId = numeric
+                })
+                print("[Copied animation]", name, "ID:", normalized)
+                copiedCount = copiedCount + 1
+            else
+                print("[CopyMyAnim] Skip idle/walk/run animation:", name)
+            end
+        end
+    end
+    
+    if copiedCount > 0 then
+        SafeWriteStolen()  -- ������ FIX: Write once after all animations
+        AfterStolenListChanged()
+        print("[CopyMyAnim] Berhasil menyalin", copiedCount, "animasi")
+    else
+        print("[CopyMyAnim] Tidak ada animasi baru yang bisa disalin")
+    end
+end)
+
+DeleteButton.MouseButton1Click:Connect(function() 
+    if activeFrame ~= StolenAnimationsFrame then 
+        print("Delete hanya tersedia di tab Stolen") 
+        return 
+    end 
+    
+    DeleteMode = not DeleteMode 
+    if DeleteMode then 
+        DeleteButton.BackgroundColor3 = Color3.fromRGB(255, 70, 70)
+        print("Delete Mode: ON - Klik animasi untuk menghapus")
+    else 
+        DeleteButton.BackgroundColor3 = Grey
+        print("Delete Mode: OFF")
+    end 
+end)
+
+----------------------------------------------------------
+-- Input handling for stealing
+----------------------------------------------------------
+UserInputService.InputBegan:Connect(function(input)
+    if (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch)
+        and StealStage == 1 then
+
+        local Target = Mouse.Target
+        if not Target then return end
+
+        local Model = Target:FindFirstAncestorWhichIsA("Model")
+        local Humanoid = Model and Model:FindFirstChildOfClass("Humanoid")
+        if not Humanoid then return end
+
+        for _, TheirTrack in pairs(Humanoid:GetPlayingAnimationTracks()) do
+            local ID = TheirTrack.Animation and TheirTrack.Animation.AnimationId
+            local normalized = NormalizeAnimId(ID)
+            local animIdNum = normalized and tonumber(normalized:match("%d+"))
+
+            if animIdNum then
+                local success, info = pcall(function()
+                    return MarketplaceService:GetProductInfo(animIdNum)
+                end)
+                if success and info and info.Name then
+                    local lowerName = string.lower(info.Name)
+
+                    if not (lowerName:find("idle") or lowerName:find("walk") or lowerName:find("run")) then
+                        if TheirTrack.Length ~= 0 and not CheckForOwnedAnimations(normalized, false) then
+                            print("[Steal saved]", info.Name, "ID:", normalized)
+
+                            CreateStolenRow(info.Name, animIdNum, normalized)
+
+                            table.insert(StolenList, {
+                                Name = info.Name,
+                                ID = normalized,
+                                animId = animIdNum
+                            })
+
+                            SafeWriteStolen()
+                            AfterStolenListChanged()
+
+                            ExitStealMode()
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+----------------------------------------------------------
+-- Load saved animations saat startup
+----------------------------------------------------------
+SafeReadStolenList()
+
+for _, data in pairs(StolenList) do
+    local normalized = NormalizeAnimId(data.ID)
+    local animNum = data.animId or (normalized and tonumber(normalized:match("%d+")))
+
+    if normalized and animNum then
+        CreateStolenRow(data.Name, animNum, normalized)
+    end
+end
+
+UpdateCanvasSize(StolenAnimationsFrame)
+
+----------------------------------------------------------
+-- AUTO-RESTORE animasi yang hilang dari UI - FIXED RACE CONDITION
+----------------------------------------------------------
+local isRestoring = false
+
+task.spawn(function()
+    while task.wait(30) do
+        if not isRestoring then
+            isRestoring = true
+            
+            local success, err = pcall(function()
+                local needsUpdate = false
+
+                -- ������ FIX: build index semua AnimId yang sudah ada di UI
+                local existing = {}
+                for _, row in pairs(StolenAnimationsFrame:GetChildren()) do
+                    if row:IsA("Frame") then
+                        for _, child in pairs(row:GetChildren()) do
+                            if (child:IsA("TextButton") or child:IsA("TextBox")) 
+                               and child:GetAttribute("AnimId") then
+                                local cid = NormalizeAnimId(child:GetAttribute("AnimId"))
+                                if cid then
+                                    existing[cid] = true
+                                end
+                            end
+                        end
+                    end
+                end
+
+                -- restore hanya yang belum punya row
+                for _, data in pairs(StolenList) do
+                    local normalized = NormalizeAnimId(data.ID)
+                    local animNum = data.animId
+                    if normalized and animNum and not existing[normalized] then
+                        CreateStolenRow(data.Name, animNum, normalized)
+                        existing[normalized] = true
+                        needsUpdate = true
+                        print("[Restored stolen animation]", data.Name)
+                    end
+                end
+
+                if needsUpdate then
+                    if AfterStolenListChanged then
+                        AfterStolenListChanged()
+                    else
+                        UpdateCanvasSize(StolenAnimationsFrame)
+                    end
+                end
+            end)
+            
+            if not success then
+                warn("[Auto-Restore Error]:", err)
+            end
+            
+            isRestoring = false
+        end
+    end
+end)
+
+----------------------------------------------------------
+-- Creating buttons untuk tab Animations (SUPER COMPACT VERTICAL) - FIXED
+----------------------------------------------------------
+local Counter = 0
+for i = 1, #AnimButtons / 2 do
+    local id = AnimButtons[Counter + 1]
+    local name = AnimButtons[Counter + 2]
+    local normalized = NormalizeAnimId(id)
+
+    local Row = Instance.new("Frame")
+    Row.Size = UDim2.new(1, -10, 0, 25) -- ������ FIX: Height 25
+    Row.BackgroundTransparency = 1
+    Row.BorderSizePixel = 0
+    Row.Visible = true
+
+    local H = Instance.new("UIListLayout")
+    H.FillDirection = Enum.FillDirection.Horizontal
+    H.Padding = UDim.new(0, 6)
+    H.VerticalAlignment = Enum.VerticalAlignment.Center
+    H.HorizontalAlignment = Enum.HorizontalAlignment.Left
+    H.SortOrder = Enum.SortOrder.LayoutOrder
+    H.Parent = Row
+
+    local speed = CreateTextbox(UDim2.new(0, 50, 0, 22), Grey, name, id, nil) -- Height 22
+    speed.LayoutOrder = 1
+    speed.Size = UDim2.new(0, 50, 0, 22)
+    speed.Visible = true
+
+    local playBtn = CreateButton(UDim2.new(1, -62, 0, 22), Red, name, name, normalized, nil, speed, false) -- Height 22
+    playBtn.LayoutOrder = 2
+    playBtn.Size = UDim2.new(1, -62, 0, 22)
+    playBtn.Visible = true
+
+    speed.Parent = Row
+    playBtn.Parent = Row
+    
+    Row.Parent = AnimationsFrame
+    Counter += 2
+end
+
+UpdateCanvasSize(AnimationsFrame)
+
+print("Animation Hub R15 V128 - BUGFREE VERSION Loaded Successfully!")
