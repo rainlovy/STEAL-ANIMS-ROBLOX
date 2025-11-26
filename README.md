@@ -27,6 +27,45 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/rainlovy/STEAL-ANIMS-
 
 ✨ Fitur
 
+• Stealanim dari player sekitar.
+
+• Copy ID anim secara instan.
+
+• Search bar realtime.
+
+• Full scroll list, tidak kepotong.
+
+• UI ringan dan responsif.
+
+• Stabil dan bebas bug versi ini.
+
+
+
+---
+
+🔗 Raw Script
+
+https://raw.githubusercontent.com/rainlovy/STEAL-ANIMS-ROBLOX/refs/heads/main/V128_BUGFREE.txt
+
+
+---
+
+📝 Catatan
+
+Beberapa game memakai custom animation loader, namun script tetap bisa membaca anim yang masuk ke Humanoid.
+
+Jika list anim kosong, gerakkan karakter 1–2 detik agar anim terbaca.
+
+
+
+---
+
+⭐ Support
+
+Bantu ⭐ repo ini jika script-nya membantu.
+Bug? Tinggalkan issue di repo.
+✨ Fitur
+
 Steal anim dari player sekitar.
 
 Copy ID anim secara instan.
