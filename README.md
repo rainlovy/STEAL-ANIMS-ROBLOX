@@ -5,6 +5,7 @@ Dibuat agar pemula pun bisa langsung pakai tanpa setting rumit.
 Versi saat ini: **V128_BUGFREE** — stabil, lebih bersih, dan minim error.
 
 •CLIENT ONLY
+
 •ONLY FOR R15 GAME & AVA
 
 ---
