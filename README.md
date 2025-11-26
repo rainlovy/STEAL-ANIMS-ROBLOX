@@ -11,8 +11,9 @@ Versi saat ini: **V128_BUGFREE** — stabil, lebih bersih, dan minim error.
 2. Buka executor (Fluxus, Delta, Evon, Hydrogen, dll).
 3. Copy script berikut:
 
-```lua
+```
 loadstring(game:HttpGet("https://raw.githubusercontent.com/rainlovy/STEAL-ANIMS-ROBLOX/refs/heads/main/V128_BUGFREE.txt"))()
+```
 
 4. Paste ke executor → Execute.
 
