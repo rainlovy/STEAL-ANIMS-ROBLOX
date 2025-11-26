@@ -71,8 +71,11 @@ Bug? Tinggalkan issue di repo.
 
 
 🔥 NEXT UPDATE
+
 PAGINATION
+
 SMART SEARCH SYSTEM
 
 VERY SOON
+
 CATEGORY
