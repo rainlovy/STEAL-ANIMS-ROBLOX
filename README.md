@@ -68,3 +68,11 @@ Jika list anim kosong, gerakkan karakter 1–2 detik agar anim terbaca.
 
 Bantu ⭐ repo ini jika script-nya membantu.
 Bug? Tinggalkan issue di repo.
+
+
+🔥 NEXT UPDATE
+PAGINATION
+SMART SEARCH SYSTEM
+
+VERY SOON
+CATEGORY
